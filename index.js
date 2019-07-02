@@ -241,7 +241,7 @@ class HtmlWebpackPlugin {
             return getHtmlWebpackPluginHooks(compilation).alterAssetTagGroups.promise({
               headTags: assetGroups.headTags,
               bodyTags: assetGroups.bodyTags,
-              otherTags: assetGroups.otherTags,
+              userDefinedTags: assetGroups.userDefinedTags,
               outputName: childCompilationOutputName,
               plugin: self
             });
@@ -263,16 +263,16 @@ class HtmlWebpackPlugin {
           // Execute the template
           .then(([assetsHookResult, assetTags, compilationResult]) => typeof compilationResult !== 'function'
             ? compilationResult
-            : self.executeTemplate(compilationResult, assetsHookResult.assets, { headTags: assetTags.headTags, bodyTags: assetTags.bodyTags, otherTags: assetTags.otherTags }, compilation));
+            : self.executeTemplate(compilationResult, assetsHookResult.assets, { headTags: assetTags.headTags, bodyTags: assetTags.bodyTags, userDefinedTags: assetTags.userDefinedTags }, compilation));
 
         const injectedHtmlPromise = Promise.all([assetTagGroupsPromise, templateExectutionPromise])
           // Allow plugins to change the html before assets are injected
           .then(([assetTags, html]) => {
-            const pluginArgs = {html, headTags: assetTags.headTags, bodyTags: assetTags.bodyTags, otherTags: assetTags.otherTags, plugin: self, outputName: childCompilationOutputName};
+            const pluginArgs = {html, headTags: assetTags.headTags, bodyTags: assetTags.bodyTags, userDefinedTags: assetTags.userDefinedTags, plugin: self, outputName: childCompilationOutputName};
             return getHtmlWebpackPluginHooks(compilation).afterTemplateExecution.promise(pluginArgs);
           })
-          .then(({html, headTags, bodyTags, otherTags}) => {
-            return self.postProcessHtml(html, assets, {headTags, bodyTags, otherTags});
+          .then(({html, headTags, bodyTags, userDefinedTags}) => {
+            return self.postProcessHtml(html, assets, {headTags, bodyTags, userDefinedTags});
           });
 
         const emitHtmlPromise = injectedHtmlPromise
@@ -797,7 +797,7 @@ class HtmlWebpackPlugin {
         ...assetTags.styles
       ],
       bodyTags: [],
-      otherTags: []
+      userDefinedTags: []
     };
     // Add script tags to head or body depending on
     // the htmlPluginOptions
@@ -806,7 +806,7 @@ class HtmlWebpackPlugin {
     } else  if (scriptTarget == 'head') {
       result.headTags.push(...assetTags.scripts);
     } else {
-        result.otherTags.push(...assetTags.scripts)
+        result.userDefinedTags.push(...assetTags.scripts)
     }
     return result;
   }
@@ -833,7 +833,7 @@ class HtmlWebpackPlugin {
 
     const body = assetTags.bodyTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
     const head = assetTags.headTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
-    const user_defined_tag = assetTags.otherTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
+    const user_defined_tag = assetTags.userDefinedTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
 
     if (body.length) {
       if (bodyRegExp.test(html)) {
