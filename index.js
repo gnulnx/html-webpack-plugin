@@ -833,7 +833,7 @@ class HtmlWebpackPlugin {
 
     const body = assetTags.bodyTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
     const head = assetTags.headTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
-    const other = assetTags.otherTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
+    const user_defined_tag = assetTags.otherTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
 
     if (body.length) {
       if (bodyRegExp.test(html)) {
@@ -859,13 +859,13 @@ class HtmlWebpackPlugin {
       html = html.replace(headRegExp, match => head.join('') + match);
     }
 
-    if (other.length) {
+    if (user_defined_tag.length) {
         if (otherRegExp.test(html)) {
         // Append assets to body element
-        html = html.replace(otherRegExp, match => other.join('') + match);
+        html = html.replace(otherRegExp, match => user_defined_tag.join('') + match);
       } else {
         // Append scripts to the end of the file if no <other> element exists:
-        html += other.join('');
+        html += user_defined_tag.join('');
       }
     }
 
