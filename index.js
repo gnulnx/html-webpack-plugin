@@ -829,7 +829,7 @@ class HtmlWebpackPlugin {
     const htmlRegExp = /(<html[^>]*>)/i;
     const headRegExp = /(<\/head\s*>)/i;
     const bodyRegExp = /(<\/body\s*>)/i;
-    const otherRegExp = new RegExp(`(<\/${this.options.inject}\\s*>)`, 'i')
+    const otherTagRegExp = new RegExp(`(<\/${this.options.inject}\\s*>)`, 'i')
 
     const body = assetTags.bodyTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
     const head = assetTags.headTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
@@ -860,9 +860,9 @@ class HtmlWebpackPlugin {
     }
 
     if (user_defined_tag.length) {
-        if (otherRegExp.test(html)) {
+        if (otherTagRegExp.test(html)) {
         // Append assets to body element
-        html = html.replace(otherRegExp, match => user_defined_tag.join('') + match);
+        html = html.replace(otherTagRegExp, match => user_defined_tag.join('') + match);
       } else {
         // Append scripts to the end of the file if no <other> element exists:
         html += user_defined_tag.join('');
