@@ -1,9 +1,8 @@
 // @ts-check
 // Import types
-/** @typedef {import("./typings").HtmlTagObject} HtmlTagObject */
-/** @typedef {import("./typings").Options} HtmlWebpackOptions */
-/** @typedef {import("./typings").ProcessedOptions} ProcessedHtmlWebpackOptions */
-/** @typedef {import("./typings").TemplateParameter} TemplateParameter */
+/* eslint-disable */
+/// <reference path="./typings.d.ts" />
+/* eslint-enable */
 /** @typedef {import("webpack/lib/Compiler.js")} WebpackCompiler */
 /** @typedef {import("webpack/lib/Compilation.js")} WebpackCompilation */
 'use strict';
@@ -29,16 +28,16 @@ const fsReadFileAsync = promisify(fs.readFile);
 
 class HtmlWebpackPlugin {
   /**
-   * @param {HtmlWebpackOptions} [options]
+   * @param {Partial<HtmlWebpackPluginOptions>} [options]
    */
   constructor (options) {
-    /** @type {HtmlWebpackOptions} */
+    /** @type {Partial<HtmlWebpackPluginOptions>} */
     const userOptions = options || {};
 
     // Default options
-    /** @type {ProcessedHtmlWebpackOptions} */
+    /** @type {HtmlWebpackPluginOptions} */
     const defaultOptions = {
-      template: 'auto',
+      template: path.join(__dirname, 'default_index.ejs'),
       templateContent: false,
       templateParameters: templateParametersGenerator,
       filename: 'index.html',
@@ -46,19 +45,18 @@ class HtmlWebpackPlugin {
       inject: true,
       compile: true,
       favicon: false,
-      minify: 'auto',
+      minify: undefined,
       cache: true,
       showErrors: true,
       chunks: 'all',
       excludeChunks: [],
       chunksSortMode: 'auto',
       meta: {},
-      base: false,
       title: 'Webpack App',
       xhtml: false
     };
 
-    /** @type {ProcessedHtmlWebpackOptions} */
+    /** @type {HtmlWebpackPluginOptions} */
     this.options = Object.assign(defaultOptions, userOptions);
 
     // Default metaOptions if no template is provided
@@ -113,8 +111,7 @@ class HtmlWebpackPlugin {
     const isProductionLikeMode = compiler.options.mode === 'production' || !compiler.options.mode;
 
     const minify = this.options.minify;
-    if (minify === true || (minify === 'auto' && isProductionLikeMode)) {
-      /** @type { import('html-minifier').Options } */
+    if (minify === true || (minify === undefined && isProductionLikeMode)) {
       this.options.minify = {
         // https://github.com/kangax/html-minifier#options-quick-reference
         collapseWhitespace: true,
@@ -219,12 +216,11 @@ class HtmlWebpackPlugin {
         // Turn the js and css paths into grouped HtmlTagObjects
         const assetTagGroupsPromise = assetsPromise
           // And allow third-party-plugin authors to reorder and change the assetTags before they are grouped
-          .then(({ assets }) => getHtmlWebpackPluginHooks(compilation).alterAssetTags.promise({
+          .then(({assets}) => getHtmlWebpackPluginHooks(compilation).alterAssetTags.promise({
             assetTags: {
               scripts: self.generatedScriptTags(assets.js),
               styles: self.generateStyleTags(assets.css),
               meta: [
-                ...self.generateBaseTag(self.options.base),
                 ...self.generatedMetaTags(self.options.meta),
                 ...self.generateFaviconTags(assets.favicon)
               ]
@@ -232,15 +228,20 @@ class HtmlWebpackPlugin {
             outputName: childCompilationOutputName,
             plugin: self
           }))
-          .then(({ assetTags }) => {
-            // Inject scripts to body unless it set explictly to head
-            const scriptTarget = self.options.inject === 'head' ? 'head' : 'body';
+          .then(({assetTags}) => {
+            // Inject scripts to body unless it set explictly to a different tag
+            let scriptTarget = 'body'
+            if (typeof(self.options.inject) == 'string') {
+              scriptTarget = self.options.inject
+            }
+
             // Group assets to `head` and `body` tag arrays
             const assetGroups = this.generateAssetGroups(assetTags, scriptTarget);
             // Allow third-party-plugin authors to reorder and change the assetTags once they are grouped
             return getHtmlWebpackPluginHooks(compilation).alterAssetTagGroups.promise({
               headTags: assetGroups.headTags,
               bodyTags: assetGroups.bodyTags,
+              userDefinedTags: assetGroups.userDefinedTags,
               outputName: childCompilationOutputName,
               plugin: self
             });
@@ -262,22 +263,22 @@ class HtmlWebpackPlugin {
           // Execute the template
           .then(([assetsHookResult, assetTags, compilationResult]) => typeof compilationResult !== 'function'
             ? compilationResult
-            : self.executeTemplate(compilationResult, assetsHookResult.assets, { headTags: assetTags.headTags, bodyTags: assetTags.bodyTags }, compilation));
+            : self.executeTemplate(compilationResult, assetsHookResult.assets, { headTags: assetTags.headTags, bodyTags: assetTags.bodyTags, userDefinedTags: assetTags.userDefinedTags }, compilation));
 
         const injectedHtmlPromise = Promise.all([assetTagGroupsPromise, templateExectutionPromise])
           // Allow plugins to change the html before assets are injected
           .then(([assetTags, html]) => {
-            const pluginArgs = { html, headTags: assetTags.headTags, bodyTags: assetTags.bodyTags, plugin: self, outputName: childCompilationOutputName };
+            const pluginArgs = {html, headTags: assetTags.headTags, bodyTags: assetTags.bodyTags, userDefinedTags: assetTags.userDefinedTags, plugin: self, outputName: childCompilationOutputName};
             return getHtmlWebpackPluginHooks(compilation).afterTemplateExecution.promise(pluginArgs);
           })
-          .then(({ html, headTags, bodyTags }) => {
-            return self.postProcessHtml(html, assets, { headTags, bodyTags });
+          .then(({html, headTags, bodyTags, userDefinedTags}) => {
+            return self.postProcessHtml(html, assets, {headTags, bodyTags, userDefinedTags});
           });
 
         const emitHtmlPromise = injectedHtmlPromise
           // Allow plugins to change the html after assets are injected
           .then((html) => {
-            const pluginArgs = { html, plugin: self, outputName: childCompilationOutputName };
+            const pluginArgs = {html, plugin: self, outputName: childCompilationOutputName};
             return getHtmlWebpackPluginHooks(compilation).beforeEmit.promise(pluginArgs)
               .then(result => result.html);
           })
@@ -333,8 +334,8 @@ class HtmlWebpackPlugin {
     // To extract the result during the evaluation this part has to be removed.
     source = source.replace('var HTML_WEBPACK_PLUGIN_RESULT =', '');
     const template = this.options.template.replace(/^.+!/, '').replace(/\?.+$/, '');
-    const vmContext = vm.createContext(_.extend({ HTML_WEBPACK_PLUGIN: true, require: require }, global));
-    const vmScript = new vm.Script(source, { filename: template });
+    const vmContext = vm.createContext(_.extend({HTML_WEBPACK_PLUGIN: true, require: require}, global));
+    const vmScript = new vm.Script(source, {filename: template});
     // Evaluate code and cast to string
     let newSource;
     try {
@@ -385,7 +386,7 @@ class HtmlWebpackPlugin {
   /**
    * This function renders the actual html by executing the template function
    *
-   * @param {(templateParameters) => string | Promise<string>} templateFunction
+   * @param {(templatePArameters) => string | Promise<string>} templateFunction
    * @param {{
       publicPath: string,
       js: Array<string>,
@@ -437,7 +438,7 @@ class HtmlWebpackPlugin {
     const htmlAfterInjection = this.options.inject
       ? this.injectAssetsIntoHtml(html, assets, assetTags)
       : html;
-    const htmlAfterMinification = typeof this.options.minify === 'object'
+    const htmlAfterMinification = this.options.minify
       ? require('html-minifier').minify(htmlAfterInjection, this.options.minify)
       : htmlAfterInjection;
     return Promise.resolve(htmlAfterMinification);
@@ -549,7 +550,7 @@ class HtmlWebpackPlugin {
      * if a path publicPath is set in the current webpack config use it otherwise
      * fallback to a realtive path
      */
-    const webpackPublicPath = compilation.mainTemplate.getPublicPath({ hash: compilationHash });
+    const webpackPublicPath = compilation.mainTemplate.getPublicPath({hash: compilationHash});
     const isPublicPathDefined = webpackPublicPath.trim() !== '';
     let publicPath = isPublicPathDefined
       // If a hard coded public path exists use it
@@ -574,7 +575,7 @@ class HtmlWebpackPlugin {
     const assets = {
       // The public path
       publicPath: publicPath,
-      // Will contain all js and mjs files
+      // Will contain all js files
       js: [],
       // Will contain all css files
       css: [],
@@ -589,9 +590,9 @@ class HtmlWebpackPlugin {
       assets.manifest = this.appendHash(assets.manifest, compilationHash);
     }
 
-    // Extract paths to .js, .mjs and .css files from the current compilation
+    // Extract paths to .js and .css files from the current compilation
     const entryPointPublicPathMap = {};
-    const extensionRegexp = /\.(css|js|mjs)(\?|$)/;
+    const extensionRegexp = /\.(css|js)(\?|$)/;
     for (let i = 0; i < entryNames.length; i++) {
       const entryName = entryNames[i];
       const entryPointFiles = compilation.entrypoints.get(entryName).getFiles();
@@ -608,7 +609,7 @@ class HtmlWebpackPlugin {
 
       entryPointPublicPaths.forEach((entryPointPublicPath) => {
         const extMatch = extensionRegexp.exec(entryPointPublicPath);
-        // Skip if the public path is not a .css, .mjs or .js file
+        // Skip if the public path is not a .css or .js file
         if (!extMatch) {
           return;
         }
@@ -618,8 +619,8 @@ class HtmlWebpackPlugin {
           return;
         }
         entryPointPublicPathMap[entryPointPublicPath] = true;
-        // ext will contain .js or .css, because .mjs recognizes as .js
-        const ext = extMatch[1] === 'mjs' ? 'js' : extMatch[1];
+        // ext will contain .js or .css
+        const ext = extMatch[1];
         assets[ext].push(entryPointPublicPath);
       });
     }
@@ -632,7 +633,7 @@ class HtmlWebpackPlugin {
    *
    * @param {string|false} faviconFilePath
    * @param {WebpackCompilation} compilation
-   * @param {string} publicPath
+   * @parma {string} publicPath
    * @returns {Promise<string|undefined>}
    */
   getFaviconPublicPath (faviconFilePath, compilation, publicPath) {
@@ -716,28 +717,6 @@ class HtmlWebpackPlugin {
   }
 
   /**
-   * Generate an optional base tag
-   * @param { false
-            | string
-            | {[attributeName: string]: string} // attributes e.g. { href:"http://example.com/page.html" target:"_blank" }
-            } baseOption
-  * @returns {Array<HtmlTagObject>}
-  */
-  generateBaseTag (baseOption) {
-    if (baseOption === false) {
-      return [];
-    } else {
-      return [{
-        tagName: 'base',
-        voidTag: true,
-        attributes: (typeof baseOption === 'string') ? {
-          href: baseOption
-        } : baseOption
-      }];
-    }
-  }
-
-  /**
    * Generate all meta tags for the given meta configuration
    * @param {false | {
             [name: string]:
@@ -817,14 +796,17 @@ class HtmlWebpackPlugin {
         ...assetTags.meta,
         ...assetTags.styles
       ],
-      bodyTags: []
+      bodyTags: [],
+      userDefinedTags: []
     };
     // Add script tags to head or body depending on
     // the htmlPluginOptions
     if (scriptTarget === 'body') {
       result.bodyTags.push(...assetTags.scripts);
-    } else {
+    } else  if (scriptTarget == 'head') {
       result.headTags.push(...assetTags.scripts);
+    } else {
+        result.userDefinedTags.push(...assetTags.scripts)
     }
     return result;
   }
@@ -847,8 +829,11 @@ class HtmlWebpackPlugin {
     const htmlRegExp = /(<html[^>]*>)/i;
     const headRegExp = /(<\/head\s*>)/i;
     const bodyRegExp = /(<\/body\s*>)/i;
+    const otherTagRegExp = new RegExp(`(<\/${this.options.inject}\\s*>)`, 'i')
+
     const body = assetTags.bodyTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
     const head = assetTags.headTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
+    const user_defined_tag = assetTags.userDefinedTags.map((assetTagObject) => htmlTagObjectToString(assetTagObject, this.options.xhtml));
 
     if (body.length) {
       if (bodyRegExp.test(html)) {
@@ -872,6 +857,16 @@ class HtmlWebpackPlugin {
 
       // Append assets to head element
       html = html.replace(headRegExp, match => head.join('') + match);
+    }
+
+    if (user_defined_tag.length) {
+        if (otherTagRegExp.test(html)) {
+        // Append assets to body element
+        html = html.replace(otherTagRegExp, match => user_defined_tag.join('') + match);
+      } else {
+        // Append scripts to the end of the file if no <other> element exists:
+        html += user_defined_tag.join('');
+      }
     }
 
     // Inject manifest into the opening html tag
@@ -903,17 +898,11 @@ class HtmlWebpackPlugin {
   /**
    * Helper to return the absolute template path with a fallback loader
    * @param {string} template
-   * The path to the template e.g. './index.html'
+   * The path to the tempalate e.g. './index.html'
    * @param {string} context
    * The webpack base resolution path for relative paths e.g. process.cwd()
    */
   getFullTemplatePath (template, context) {
-    if (template === 'auto') {
-      template = path.resolve(context, 'src/index.ejs');
-      if (!fs.existsSync(template)) {
-        template = path.join(__dirname, 'default_index.ejs');
-      }
-    }
     // If the template doesn't use a loader use the lodash template loader
     if (template.indexOf('!') === -1) {
       template = require.resolve('./lib/loader.js') + '!' + path.resolve(context, template);
@@ -952,8 +941,8 @@ class HtmlWebpackPlugin {
      headTags: HtmlTagObject[],
      bodyTags: HtmlTagObject[]
    }} assetTags
- * @param {ProcessedHtmlWebpackOptions} options
- * @returns {TemplateParameter}
+ * @param {HtmlWebpackPluginOptions} options
+ * @returns {HtmlWebpackPluginTemplateParameter}
  */
 function templateParametersGenerator (compilation, assets, assetTags, options) {
   const xhtml = options.xhtml;
